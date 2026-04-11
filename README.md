@@ -11,7 +11,7 @@ CLI-інструмент на базі Telethon для швидкої перев
 
 ### 1. Клонування репозиторію
 ```bash
-git clone [https://github.com/iliapavlov/teleguard-cli.git](https://github.com/iliapavlov/teleguard-cli.git)
+git clone https://github.com/iliapavlov/teleguard-cli.git
 cd teleguard-cli
 ```
 
