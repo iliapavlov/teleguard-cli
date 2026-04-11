@@ -10,7 +10,7 @@ from telethon.errors import FloodWaitError
 
 # Налаштування білого списку (можна винести в окремий файл)
 ALLOWED_SESSIONS = {
-    ("Firefox 149", "Telegram Web 2.2 K")
+    ("Firefox 149", "Telegram Web")
 }
 
 def check_account_status(client):
