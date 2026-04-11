@@ -15,18 +15,33 @@ ALLOWED_SESSIONS = {
 
 def check_account_status(client):
     me = client.get_me()
-    print(f"\n👤 Name: {me.first_name} {me.last_name or ''}")
+    print(f"\n{"="*40}")
+    print(f"👤 КОРУСТУВАЧ: {me.first_name} {me.last_name or ''}")
     print(f"📱 Username: @{me.username} | 🆔 ID: {me.id}")
-    print(f"💎 Premium: {'Yes' if me.premium else 'No'}")
+    print(f"💎 Premium: {'Так' if me.premium else 'Ні'}")
 
+    # Перевірка статусу (онлайн/офлайн)
     status = me.status
     if isinstance(status, UserStatusOnline):
-        print("🟢 Status: Online")
+        print("🟢 Статус: Online")
     elif isinstance(status, UserStatusOffline):
-        print(f"🔘 Last seen: {status.was_online}")
+        print(f"🔘 Востаннє в мережі: {status.was_online}")
     
+    # Детальний аналіз сесій
+    print(f"\n🔐 АКТИВНІ СЕСІЇ:")
     auths = client(GetAuthorizationsRequest())
-    print(f"🔐 Active sessions: {len(auths.authorizations)}")
+    
+    for i, auth in enumerate(auths.authorizations, 1):
+        current_mark = "⭐ (ПОТОЧНА)" if auth.current else "  "
+        print(f"{i}. {current_mark} Пристрій: {auth.device_model}")
+        print(f"   Додаток: {auth.app_name}")
+        print(f"   IP: {auth.ip} | Локація: {auth.country}")
+        print(f"   Дата входу: {auth.date_created.strftime('%Y-%m-%d %H:%M:%S')}")
+        print(f"   Параметри для white-list: (\"{auth.device_model}\", \"{auth.app_name}\")")
+        print(f"   {'-'*30}")
+
+    print(f"Всього активних сесій: {len(auths.authorizations)}")
+    print(f"{"="*40}\n")
 
 def terminate_suspicious_sessions(client):
     auths = client(GetAuthorizationsRequest())
