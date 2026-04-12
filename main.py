@@ -67,30 +67,55 @@ def terminate_suspicious_sessions(client):
     
     print(f"🔚 Total terminated: {terminated}")
 
-def manage_unread_messages(client):
-    print("\n📩 Unread Messages:")
-    for dialog in client.get_dialogs():
-        if dialog.unread_count == 0:
-            continue
-            
-        print(f"\n--- 👥 {dialog.name} ({dialog.unread_count} new) ---")
-        messages = client.get_messages(dialog, limit=dialog.unread_count)
-        
-        for msg in reversed(messages):
-            sender = "You" if msg.out else "Them"
-            text = msg.text.replace('\n', ' ')[:50] if msg.text else "[Media/Other]"
-            print(f"[{msg.date.strftime('%H:%M')}] {sender}: {text}")
+async def manage_unread_messages(client):
+    # Отримуємо всі діалоги
+    dialogs = await client.get_dialogs()
+    # Фільтруємо лише ті, де є непрочитані
+    unread_dialogs = [d for d in dialogs if d.unread_count > 0]
 
-        action = input(f"\n[R]ead / [A]nswer / [S]kip / [Q]uit: ").lower()
+    # 1) Вивід заголовка лише якщо є повідомлення
+    if not unread_dialogs:
+        print("\n✅ Непрочитаних повідомлень немає.")
+        return
+
+    print("\n📩 Unread Messages:")
+
+    for dialog in unread_dialogs:
+        # 5) Пріоритетність: Спершу питаємо дію, щоб зекономити трафік
+        print(f"\n--- 👥 {dialog.name} ({dialog.unread_count} нових) ---")
+        
+        action = input(f"[R]ead / [A]nswer / [S]kip / [Q]uit: ").lower()
+
+        # 2) Використовуємо return для негайного виходу
+        if action == 'q':
+            print("🛑 Вихід з перегляду повідомлень.")
+            return 
+
+        # 3, 4) Пропуск з візуальним фідбеком
+        if action == 's':
+            print(f"⏩ Пропущено: {dialog.name}")
+            continue
+
+        # Завантажуємо повідомлення тільки якщо користувач обрав Read або Answer
+        messages = await client.get_messages(dialog, limit=dialog.unread_count)
+        
+        print("-" * 30)
+        for msg in reversed(messages):
+            sender = "Ви" if msg.out else "Співрозмовник"
+            text = msg.text.replace('\n', ' ')[:50] if msg.text else "[Медіа/Інше]"
+            print(f"[{msg.date.strftime('%H:%M')}] {sender}: {text}")
+        print("-" * 30)
+
         if action == 'r':
-            client.send_read_acknowledge(dialog)
+            await client.send_read_acknowledge(dialog)
+            print(f"✔️ Чат {dialog.name} позначено як прочитаний.")
+            
         elif action == 'a':
-            reply = input("Your message: ")
+            reply = input("Ваша відповідь: ")
             if reply.strip():
-                client.send_message(dialog, reply)
-                client.send_read_acknowledge(dialog)
-        elif action == 'q':
-            break
+                await client.send_message(dialog, reply)
+                await client.send_read_acknowledge(dialog)
+                print(f"🚀 Повідомлення надіслано в {dialog.name}.")
 
 def main():
     load_dotenv()
