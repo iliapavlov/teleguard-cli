@@ -1,6 +1,7 @@
 import argparse
 import os
 import time
+import json  # 1. Додано імпорт json
 from dotenv import load_dotenv
 from telethon.sync import TelegramClient
 from telethon.tl.functions.users import GetFullUserRequest
@@ -8,24 +9,24 @@ from telethon.tl.functions.account import GetAuthorizationsRequest, ResetAuthori
 from telethon.tl.types import UserStatusOnline, UserStatusOffline
 from telethon.errors import FloodWaitError
 
-# Налаштування білого списку (можна винести в окремий файл)
-ALLOWED_SESSIONS = {
-    ("Firefox 149", "Telegram Web")
-}
+def load_config():
+    config_path = 'configuration.json'
+    default_config = {"allowed_sessions": []}
+    
+    if os.path.exists(config_path):
+        with open(config_path, 'r', encoding='utf-8') as f:
+            try:
+                return json.load(f)
+            except json.JSONDecodeError:
+                print("⚠️ Помилка читання configuration.json. Використовую порожній список.")
+                return default_config
+    return default_config
 
 def check_account_status(client):
     me = client.get_me()
-    print(f"\n{"="*40}")
+    print(f"\n{'-'*40}")
     print(f"👤 КОРУСТУВАЧ: {me.first_name} {me.last_name or ''}")
     print(f"📱 Username: @{me.username} | 🆔 ID: {me.id}")
-    print(f"💎 Premium: {'Так' if me.premium else 'Ні'}")
-
-    # Перевірка статусу (онлайн/офлайн)
-    status = me.status
-    if isinstance(status, UserStatusOnline):
-        print("🟢 Статус: Online")
-    elif isinstance(status, UserStatusOffline):
-        print(f"🔘 Востаннє в мережі: {status.was_online}")
     
     # Детальний аналіз сесій
     print(f"\n🔐 АКТИВНІ СЕСІЇ:")
@@ -36,44 +37,51 @@ def check_account_status(client):
         print(f"{i}. {current_mark} Пристрій: {auth.device_model}")
         print(f"   Додаток: {auth.app_name}")
         print(f"   IP: {auth.ip} | Локація: {auth.country}")
-        print(f"   Дата входу: {auth.date_created.strftime('%Y-%m-%d %H:%M:%S')}")
-        print(f"   Параметри для white-list: (\"{auth.device_model}\", \"{auth.app_name}\")")
+        
+        # 2. Виправлено вивід для зручного копіювання в JSON
+        # Виводимо готовий рядок, який можна просто вставити в масив
+        print(f"   Копіювати в configuration.json: \"{auth.device_model}|{auth.app_name}\"")
         print(f"   {'-'*30}")
 
     print(f"Всього активних сесій: {len(auths.authorizations)}")
-    print(f"{"="*40}\n")
+    print(f"{'-'*40}\n")
 
 def terminate_suspicious_sessions(client):
+    # 1. Завантажуємо конфігурацію всередині функції
+    config = load_config()
+    allowed_list = config.get("allowed_sessions", [])
+    
     auths = client(GetAuthorizationsRequest())
     terminated = 0
     
     for auth in auths.authorizations:
         if auth.current:
-            print(f"🛡️ Current session - Skipping.")
             continue
             
         device, app = auth.device_model or "", auth.app_name or ""
+        # Формуємо ключ ідентифікації так само, як у пораді при статусі
+        session_key = f"{device}|{app}"
         
-        if (device, app) in ALLOWED_SESSIONS:
-            print(f"✅ Allowed: {device} ({app})")
+        if session_key in allowed_list:
+            print(f"✅ Дозволено: {device} ({app})")
         else:
             try:
+                print(f"❌ Спроба завершення: {device} ({app})...")
                 client(ResetAuthorizationRequest(hash=auth.hash))
-                print(f"❌ Terminated: {device} ({app}) | IP: {auth.ip} | {auth.country}")
+                print(f"🗑️ Сесію завершено! IP: {auth.ip}")
                 terminated += 1
             except FloodWaitError as e:
-                print(f"⏳ Flood limit. Waiting {e.seconds}s...")
+                print(f"⏳ Ліміт запитів. Чекаємо {e.seconds}с...")
                 time.sleep(e.seconds)
+            except Exception as e:
+                print(f"⚠️ Помилка: {e}")
     
-    print(f"🔚 Total terminated: {terminated}")
+    print(f"\n🔚 Всього видалено сесій: {terminated}")
 
 async def manage_unread_messages(client):
-    # Отримуємо всі діалоги
     dialogs = await client.get_dialogs()
-    # Фільтруємо лише ті, де є непрочитані
     unread_dialogs = [d for d in dialogs if d.unread_count > 0]
 
-    # 1) Вивід заголовка лише якщо є повідомлення
     if not unread_dialogs:
         print("\n✅ Непрочитаних повідомлень немає.")
         return
@@ -81,22 +89,17 @@ async def manage_unread_messages(client):
     print("\n📩 Unread Messages:")
 
     for dialog in unread_dialogs:
-        # 5) Пріоритетність: Спершу питаємо дію, щоб зекономити трафік
         print(f"\n--- 👥 {dialog.name} ({dialog.unread_count} нових) ---")
-        
         action = input(f"[R]ead / [A]nswer / [S]kip / [Q]uit: ").lower()
 
-        # 2) Використовуємо return для негайного виходу
         if action == 'q':
             print("🛑 Вихід з перегляду повідомлень.")
             return 
 
-        # 3, 4) Пропуск з візуальним фідбеком
         if action == 's':
             print(f"⏩ Пропущено: {dialog.name}")
             continue
 
-        # Завантажуємо повідомлення тільки якщо користувач обрав Read або Answer
         messages = await client.get_messages(dialog, limit=dialog.unread_count)
         
         print("-" * 30)
@@ -109,13 +112,12 @@ async def manage_unread_messages(client):
         if action == 'r':
             await client.send_read_acknowledge(dialog)
             print(f"✔️ Чат {dialog.name} позначено як прочитаний.")
-            
         elif action == 'a':
             reply = input("Ваша відповідь: ")
             if reply.strip():
                 await client.send_message(dialog, reply)
                 await client.send_read_acknowledge(dialog)
-                print(f"🚀 Повідомлення надіслано в {dialog.name}.")
+                print(f"🚀 Повідомлення надіслано.")
 
 def main():
     load_dotenv()
@@ -136,7 +138,8 @@ def main():
     with TelegramClient('diag_session', int(api_id), api_hash) as client:
         if args.status: check_account_status(client)
         if args.clean: terminate_suspicious_sessions(client)
-        if args.unread: manage_unread_messages(client)
+        if args.unread:
+            client.loop.run_until_complete(manage_unread_messages(client))
 
 if __name__ == '__main__':
     main()
