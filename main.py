@@ -1,12 +1,10 @@
 import argparse
 import os
 import time
-import json  # 1. Додано імпорт json
+import json
 from dotenv import load_dotenv
 from telethon.sync import TelegramClient
-from telethon.tl.functions.users import GetFullUserRequest
 from telethon.tl.functions.account import GetAuthorizationsRequest, ResetAuthorizationRequest
-from telethon.tl.types import UserStatusOnline, UserStatusOffline
 from telethon.errors import FloodWaitError
 
 def load_config():
@@ -38,8 +36,7 @@ def check_account_status(client):
         print(f"   Додаток: {auth.app_name}")
         print(f"   IP: {auth.ip} | Локація: {auth.country}")
         
-        # 2. Виправлено вивід для зручного копіювання в JSON
-        # Виводимо готовий рядок, який можна просто вставити в масив
+        # Виводимо готовий рядок, який можна просто вставити в масив в configuration.json
         print(f"   Копіювати в configuration.json: \"{auth.device_model}|{auth.app_name}\"")
         print(f"   {'-'*30}")
 
@@ -47,7 +44,7 @@ def check_account_status(client):
     print(f"{'-'*40}\n")
 
 def terminate_suspicious_sessions(client):
-    # 1. Завантажуємо конфігурацію всередині функції
+    # Завантажуємо конфігурацію та отримуємо список дозволених сесій
     config = load_config()
     allowed_list = config.get("allowed_sessions", [])
     
@@ -59,7 +56,7 @@ def terminate_suspicious_sessions(client):
             continue
             
         device, app = auth.device_model or "", auth.app_name or ""
-        # Формуємо ключ ідентифікації так само, як у пораді при статусі
+        # Формуємо ключ ідентифікації сесії для порівняння з дозволеним списком
         session_key = f"{device}|{app}"
         
         if session_key in allowed_list:
@@ -79,45 +76,34 @@ def terminate_suspicious_sessions(client):
     print(f"\n🔚 Всього видалено сесій: {terminated}")
 
 async def manage_unread_messages(client):
-    dialogs = await client.get_dialogs()
-    unread_dialogs = [d for d in dialogs if d.unread_count > 0]
-
-    if not unread_dialogs:
-        print("\n✅ Непрочитаних повідомлень немає.")
-        return
-
-    print("\n📩 Unread Messages:")
-
-    for dialog in unread_dialogs:
-        print(f"\n--- 👥 {dialog.name} ({dialog.unread_count} нових) ---")
-        action = input(f"[R]ead / [A]nswer / [S]kip / [Q]uit: ").lower()
-
-        if action == 'q':
-            print("🛑 Вихід з перегляду повідомлень.")
-            return 
-
-        if action == 's':
-            print(f"⏩ Пропущено: {dialog.name}")
-            continue
-
-        messages = await client.get_messages(dialog, limit=dialog.unread_count)
-        
-        print("-" * 30)
-        for msg in reversed(messages):
-            sender = "Ви" if msg.out else "Співрозмовник"
-            text = msg.text.replace('\n', ' ')[:50] if msg.text else "[Медіа/Інше]"
-            print(f"[{msg.date.strftime('%H:%M')}] {sender}: {text}")
-        print("-" * 30)
-
-        if action == 'r':
-            await client.send_read_acknowledge(dialog)
-            print(f"✔️ Чат {dialog.name} позначено як прочитаний.")
-        elif action == 'a':
-            reply = input("Ваша відповідь: ")
-            if reply.strip():
-                await client.send_message(dialog, reply)
+    async for dialog in client.iter_dialogs():
+        if dialog.unread_count > 0:
+            print(f"\n--- 👥 {dialog.name} ({dialog.unread_count} нових) ---")
+            
+            async for message in client.iter_messages(dialog, limit=dialog.unread_count):
+                if message.text:
+                    print(f"[{message.date.strftime('%H:%M')}] Співрозмовник: {message.text}")
+            
+            choice = input("[R]ead / [A]nswer / [S]kip / [Q]uit: ").lower()
+            
+            if choice == 'r':
                 await client.send_read_acknowledge(dialog)
-                print(f"🚀 Повідомлення надіслано.")
+                print(f"✔️ Чат {dialog.name} позначено як прочитаний.")
+            elif choice == 'a':
+                reply_text = input("Ваша відповідь: ")
+                
+                # Очищаємо текст від можливих проблемних символів, 
+                # які ламають utf-16-le кодек у Telethon
+                safe_reply = reply_text.encode('utf-8', 'ignore').decode('utf-8')
+                
+                try:
+                    await client.send_message(dialog, safe_reply)
+                    await client.send_read_acknowledge(dialog)
+                    print(f"🚀 Відповідь надіслана.")
+                except Exception as e:
+                    print(f"❌ Помилка при відправці: {e}")
+            elif choice == 'q':
+                return
 
 def main():
     load_dotenv()
