@@ -104,6 +104,7 @@ async def manage_unread_messages(client):
                     print(f"❌ Помилка при відправці: {e}")
             elif choice == 'q':
                 return
+    print("\n✅ Непрочитані повідомлення відсутні.")
 
 def main():
     load_dotenv()
